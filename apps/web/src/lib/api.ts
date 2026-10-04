@@ -1,4 +1,40 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+/**
+ * Resolves the target API URL for an endpoint.
+ *
+ * 1. Server-side runtime (e.g. Next.js Server Components, Server Actions, Route Handlers):
+ *    Uses the Vercel Service Binding `process.env.API_URL` injected by Vercel:
+ *    new URL(cleanEndpoint, process.env.API_URL)
+ *
+ * 2. Client-side runtime (Browser):
+ *    - Uses NEXT_PUBLIC_API_URL if explicitly provided.
+ *    - Falls back to same-origin relative `/api/...` on Vercel (routed to the `api` service via top-level rewrites).
+ *    - Falls back to `http://localhost:5000` when running locally outside of Vercel dev.
+ */
+export function resolveApiUrl(endpoint: string): string {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+
+  // Server-side (functions / SSR / Server Actions)
+  if (typeof window === 'undefined') {
+    const internalUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    return new URL(cleanEndpoint, internalUrl.endsWith('/') ? internalUrl : `${internalUrl}/`).toString();
+  }
+
+  // Client-side with explicit public base URL
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    const base = process.env.NEXT_PUBLIC_API_URL.endsWith('/')
+      ? process.env.NEXT_PUBLIC_API_URL.slice(0, -1)
+      : process.env.NEXT_PUBLIC_API_URL;
+    return `${base}/${cleanEndpoint}`;
+  }
+
+  // Local development standalone fallback (web:3000 calling api:5000)
+  if (window.location.hostname === 'localhost' && window.location.port === '3000') {
+    return `http://localhost:5000/${cleanEndpoint}`;
+  }
+
+  // Same-origin Vercel deployment / Vercel dev (public rewrite routes /api/(.*) -> api service)
+  return cleanEndpoint.startsWith('api/') ? `/${cleanEndpoint}` : `/api/${cleanEndpoint}`;
+}
 
 class ApiClient {
   private accessToken: string | null = null;
@@ -40,7 +76,7 @@ class ApiClient {
   }
 
   async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+    const url = resolveApiUrl(endpoint);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -88,7 +124,7 @@ class ApiClient {
   async refreshToken(): Promise<boolean> {
     try {
       const storedRefreshToken = typeof window !== 'undefined' ? localStorage.getItem('nd_refresh_token') : null;
-      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      const res = await fetch(resolveApiUrl('/auth/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

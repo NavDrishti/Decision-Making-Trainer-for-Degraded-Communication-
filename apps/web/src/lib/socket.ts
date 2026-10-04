@@ -7,7 +7,18 @@ let socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socket) {
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+    let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+    if (!socketUrl) {
+      if (typeof window !== 'undefined') {
+        if (window.location.hostname === 'localhost' && window.location.port === '3000') {
+          socketUrl = 'http://localhost:5000';
+        } else {
+          socketUrl = window.location.origin;
+        }
+      } else {
+        socketUrl = 'http://localhost:5000';
+      }
+    }
     socket = io(socketUrl, {
       auth: (cb) => {
         cb({ token: api.getToken() });

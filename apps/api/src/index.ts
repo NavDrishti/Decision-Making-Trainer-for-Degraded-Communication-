@@ -28,9 +28,26 @@ app.use(
   })
 );
 
+const allowedOrigins = [
+  config.corsOrigin,
+  config.clientUrl,
+  process.env.WEB_URL,
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: [config.corsOrigin, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (
+        allowedOrigins.some((allowed) => origin === allowed || (allowed && origin.startsWith(allowed))) ||
+        origin.endsWith('.vercel.app')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -41,8 +58,11 @@ app.use(cookieParser());
 app.use(express.json({ limit: '5mb' }));
 app.use(generalRateLimiter);
 
+// Central API Router
+const apiRouter = express.Router();
+
 // Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
+apiRouter.get('/health', (req: Request, res: Response) => {
   return res.json({
     status: 'ONLINE',
     service: 'NavDrishtiAI API Gateway',
@@ -52,17 +72,23 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
-// Mount Routes
-app.use('/auth', authRouter);
-app.use('/users', usersRouter);
-app.use('/scenarios', scenariosRouter);
-app.use('/sessions', sessionsRouter);
-app.use('/sessions', simulationRouter);
-app.use('/sessions', aarRouter);
-app.use('/sessions', exportsRouter);
-app.use('/admin', adminRouter);
-app.use('/waitlist', waitlistRouter);
-app.use('/support', supportRouter);
+// Mount Routes on API router
+apiRouter.use('/auth', authRouter);
+apiRouter.use('/users', usersRouter);
+apiRouter.use('/scenarios', scenariosRouter);
+apiRouter.use('/sessions', sessionsRouter);
+apiRouter.use('/sessions', simulationRouter);
+apiRouter.use('/sessions', aarRouter);
+apiRouter.use('/sessions', exportsRouter);
+apiRouter.use('/admin', adminRouter);
+apiRouter.use('/waitlist', waitlistRouter);
+apiRouter.use('/support', supportRouter);
+
+// Mount under both '/api' and '/' for seamless compatibility with:
+// 1. Vercel public rewrite (/api/(.*) -> service: api)
+// 2. Direct internal calls or localhost (:5000/(.*) -> service: api)
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
 
 // Safe Global Error Handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
@@ -87,3 +113,4 @@ server.listen(config.port, () => {
 });
 
 export { app, server };
+export default app;
