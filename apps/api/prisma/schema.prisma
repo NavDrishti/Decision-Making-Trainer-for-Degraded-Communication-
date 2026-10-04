@@ -1,0 +1,368 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                        String                 @id @default(uuid())
+  fullName                  String
+  email                     String                 @unique
+  emailVerifiedAt           DateTime?
+  passwordHash              String
+  role                      String                 @default("TEAM_OPERATOR") // SUPER_ADMIN, INSTRUCTOR, COMMANDER, TEAM_OPERATOR, OBSERVER
+  avatarInitials            String                 @default("ND")
+  isActive                  Boolean                @default(true)
+  isLocked                  Boolean                @default(false)
+  failedLoginCount          Int                    @default(0)
+  lockoutUntil              DateTime?
+  twoFactorEnabled          Boolean                @default(false)
+  twoFactorSecretEncrypted  String?
+  twoFactorRecoveryCodes    String?                // JSON string of hashed recovery codes
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  lastLoginAt               DateTime?
+  themePreference           String                 @default("dark") // dark, light, system
+
+  sessions                  UserSession[]
+  passwordResets            PasswordResetToken[]
+  emailVerifications        EmailVerificationToken[]
+  createdScenarios          Scenario[]
+  createdTrainingSessions   TrainingSession[]
+  participations            SessionParticipant[]
+  auditLogs                 AuditLog[]
+  instructorNotes           InstructorNote[]
+  notifications             Notification[]
+  exportRecords             ExportRecord[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model UserSession {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique
+  jti         String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([jti])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Scenario {
+  id                 String            @id @default(uuid())
+  title              String
+  fictionalLocation  String
+  description        String
+  objective          String
+  difficulty         String            @default("MEDIUM") // EASY, MEDIUM, HARD
+  durationSeconds    Int               @default(600)
+  createdById        String
+  status             String            @default("PUBLISHED") // DRAFT, PUBLISHED, ARCHIVED
+  configurationJson  String            // Full zones, routes, resources, scheduled events
+  scoreWeightsJson   String            // Configurable ComRes index weights
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  archivedAt         DateTime?
+
+  creator            User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  trainingSessions   TrainingSession[]
+
+  @@index([createdById])
+  @@index([status])
+}
+
+model TrainingSession {
+  id                         String               @id @default(uuid())
+  joinCode                   String               @unique
+  scenarioId                 String
+  createdById                String
+  status                     String               @default("LOBBY") // LOBBY, RUNNING, PAUSED, COMPLETED, ARCHIVED
+  startedAt                  DateTime?
+  pausedAt                   DateTime?
+  endedAt                    DateTime?
+  currentSimulationSecond    Int                  @default(0)
+  configurationSnapshotJson  String               // Snapshot of scenario config
+  groundTruthStateJson       String               // Current real ground truth state
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+
+  scenario                   Scenario             @relation(fields: [scenarioId], references: [id])
+  creator                    User                 @relation(fields: [createdById], references: [id])
+  participants               SessionParticipant[]
+  simulationEvents           SimulationEvent[]
+  messages                   Message[]
+  orders                     Order[]
+  decisions                  Decision[]
+  instructorNotes            InstructorNote[]
+  aarReport                  AarReport?
+  exportRecords              ExportRecord[]
+
+  @@index([joinCode])
+  @@index([status])
+  @@index([scenarioId])
+}
+
+model SessionParticipant {
+  id             String          @id @default(uuid())
+  sessionId      String
+  userId         String
+  assignedRole   String          // COMMANDER, TEAM_ALPHA, TEAM_BRAVO, AIR_OBSERVATION, LOGISTICS, INSTRUCTOR, OBSERVER
+  status         String          @default("READY") // CONNECTED, DISCONNECTED, READY
+  joinedAt       DateTime        @default(now())
+  disconnectedAt DateTime?
+  lastSeenAt     DateTime        @default(now())
+
+  session        TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentMessages   Message[]       @relation("SenderParticipant")
+  receivedMessages Message[]     @relation("RecipientParticipant")
+  ordersIssued   Order[]         @relation("IssuerParticipant")
+  ordersReceived Order[]         @relation("RecipientParticipantOrder")
+  decisions      Decision[]
+
+  @@unique([sessionId, userId])
+  @@index([sessionId])
+  @@index([userId])
+}
+
+model SimulationEvent {
+  id               String          @id @default(uuid())
+  sessionId        String
+  type             String          // MESSAGE_SENT, MESSAGE_DELIVERED, CHANNEL_DEGRADED, etc.
+  source           String          @default("SYSTEM") // SYSTEM, INSTRUCTOR, PARTICIPANT
+  targetRole       String?         // Target role if scoped
+  payloadJson      String          // Specific event payload
+  occurredAt       DateTime        @default(now())
+  simulationSecond Int
+  createdById      String?
+  visibilityScope  String          @default("ALL") // ALL, INSTRUCTOR_ONLY, ROLE_SCOPED
+  correlationId    String?
+
+  session          TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([simulationSecond])
+  @@index([type])
+}
+
+model Message {
+  id                     String              @id @default(uuid())
+  sessionId              String
+  senderParticipantId    String
+  recipientParticipantId String?
+  recipientRole          String?             // Specific role or null for all
+  channel                String              @default("PRIMARY") // PRIMARY, BACKUP
+  body                   String
+  relatedSubject         String?
+  confidenceLevel        String?             @default("HIGH") // HIGH, MEDIUM, LOW
+  createdAt              DateTime            @default(now())
+  simulationSecond       Int                 @default(0)
+  scheduledDeliverySecond Int                @default(0)
+  deliveredSecond        Int?
+  scheduledDeliveryAt    DateTime            @default(now())
+  deliveredAt            DateTime?
+  status                 String              @default("DELIVERED") // PENDING, DELIVERED, DELAYED, DROPPED, STALE
+  delaySeconds           Int                 @default(0)
+  isStale                Boolean             @default(false)
+  metadataJson           String?
+
+  session                TrainingSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sender                 SessionParticipant  @relation("SenderParticipant", fields: [senderParticipantId], references: [id], onDelete: Cascade)
+  recipient              SessionParticipant? @relation("RecipientParticipant", fields: [recipientParticipantId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([status])
+}
+
+model Order {
+  id                     String              @id @default(uuid())
+  sessionId              String
+  issuerParticipantId    String
+  recipientRole          String              // Target team/role
+  recipientParticipantId String?
+  content                String
+  status                 String              @default("ISSUED") // ISSUED, ACKNOWLEDGED, EXECUTED
+  createdAt              DateTime            @default(now())
+  simulationSecond       Int                 @default(0)
+  acknowledgedAt         DateTime?
+  acknowledgedSecond     Int?
+  relatedRouteId         String?
+  metadataJson           String?
+
+  session                TrainingSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  issuer                 SessionParticipant  @relation("IssuerParticipant", fields: [issuerParticipantId], references: [id], onDelete: Cascade)
+  recipient              SessionParticipant? @relation("RecipientParticipantOrder", fields: [recipientParticipantId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([status])
+}
+
+model Decision {
+  id                         String             @id @default(uuid())
+  sessionId                  String
+  participantId              String
+  decisionType               String             // ROUTE_SELECTION, CHANNEL_SWITCH, HOLD_POSITION, etc.
+  action                     String
+  rationale                  String
+  simulationSecond           Int
+  createdAt                  DateTime           @default(now())
+  resolvedAt                 DateTime?
+  relatedMessageIdsJson      String             @default("[]")
+  perceivedStateSnapshotJson String             // Complete snapshot of what participant saw at that moment
+  resultJson                 String?
+  scoreExplanationJson       String?
+
+  session                    TrainingSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant                SessionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([participantId])
+}
+
+model InstructorNote {
+  id               String          @id @default(uuid())
+  sessionId        String
+  authorId         String
+  content          String
+  targetRole       String?
+  simulationSecond Int
+  createdAt        DateTime        @default(now())
+
+  session          TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  author           User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  action      String   // AUTH_LOGIN, EVENT_INJECTED, SESSION_STARTED, EXPORT_GENERATED, etc.
+  ipAddress   String?
+  userAgent   String?
+  detailsJson String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model AarReport {
+  id                         String          @id @default(uuid())
+  sessionId                  String          @unique
+  overallScore               Int             @default(75)
+  teamResilienceIndexJson    String          // Detailed ComRes index breakdown
+  individualScoresJson       String          // Role-specific scores and fairness notes
+  recommendationsJson        String          // System-generated evidence-based recommendations
+  generatedAt                DateTime        @default(now())
+  pdfUrl                     String?
+
+  session                    TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model ExportRecord {
+  id            String          @id @default(uuid())
+  sessionId     String
+  userId        String
+  exportType    String          // PDF, CSV, JSON
+  createdAt     DateTime        @default(now())
+  watermarkText String          @default("Training Use Only - Fictional Data")
+
+  session       TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, WARNING, SUCCESS, ALERT
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ArVrWaitlistEntry {
+  id           String   @id @default(uuid())
+  name         String
+  email        String
+  organization String?
+  interestType String   @default("COMMAND_ROOM_VR") // COMMAND_ROOM_VR, OPERATIONAL_OVERLAY_AR, IMMERSIVE_BRIEFING, RESEARCH_PILOT
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([email])
+}
+
+model SupportRequest {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  role      String?
+  subject   String
+  message   String
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  valueJson   String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+}
