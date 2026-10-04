@@ -207,7 +207,7 @@ authRouter.post('/login', authRateLimiter, async (req: Request, res: Response) =
     });
   } catch (err: any) {
     console.error('Login error:', err);
-    return res.status(500).json({ success: false, error: 'Internal login error.' });
+    return res.status(500).json({ success: false, error: err?.message || 'Internal login error.' });
   }
 });
 
