@@ -133,9 +133,24 @@ export function requireSessionAccess(paramName: string = 'id') {
       return next();
     }
 
-    // Trainees must be assigned participants
+    // Trainees / Commanders: auto-enroll as participant if not yet enrolled
     if (session.participants.length === 0) {
-      return res.status(403).json({ success: false, error: 'You are not assigned to this training session.' });
+      const assignedRole =
+        req.user.role === 'INSTRUCTOR' || req.user.role === 'SUPER_ADMIN'
+          ? 'COMMANDER'
+          : req.user.role || 'COMMANDER';
+      try {
+        await prisma.sessionParticipant.create({
+          data: {
+            sessionId: session.id,
+            userId: req.user.id,
+            assignedRole,
+            status: 'READY',
+          },
+        });
+      } catch (e) {
+        // ignore race condition if already created
+      }
     }
 
     return next();

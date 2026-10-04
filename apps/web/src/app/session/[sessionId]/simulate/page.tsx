@@ -43,8 +43,9 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
   const [session, setSession] = useState<any>(null);
   const [simulationSecond, setSimulationSecond] = useState<number>(1695); // 00:28:15 default demo
   const [activeTab, setActiveTab] = useState<'TEAM' | 'ALL' | 'SYSTEM'>('TEAM');
-  const [activeNav, setActiveNav] = useState<'MAP' | 'COMMS' | 'STATUS' | 'OBJECTIVES' | 'EVENTS' | 'DOCS'>('MAP');
+  const [activeNav, setActiveNav] = useState<'MAP' | 'DECISIONS' | 'COMMS' | 'STATUS' | 'OBJECTIVES' | 'EVENTS' | 'DOCS'>('MAP');
   const [currentView, setCurrentView] = useState<'YOUR_VIEW' | 'GROUND_TRUTH'>('YOUR_VIEW');
+  const [recordedDecisions, setRecordedDecisions] = useState<any[]>([]);
 
   useEffect(() => {
     initAuth();
@@ -325,6 +326,10 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
         if (data?.session) {
           setSession(data.session);
         }
+        const decData = await api.get(`/sessions/${resolvedParams.sessionId}/decisions`);
+        if (decData?.decisions) {
+          setRecordedDecisions(decData.decisions);
+        }
       } catch (err) {
         console.error(err);
       }
@@ -399,12 +404,43 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
     const actionText = decisionAction.trim() || CORRIDOR_OPTIONS[selectedRouteId]?.action || 'Tactical Route Order';
 
     try {
-      await api.post(`/sessions/${resolvedParams.sessionId}/decisions`, {
+      const res = await api.post(`/sessions/${resolvedParams.sessionId}/decisions`, {
         decisionType: 'ROUTE_SELECTION',
         action: actionText,
         rationale: decisionRationale.trim(),
         selectedRouteId: selectedRouteId,
       });
+
+      const newDecisionItem = res?.decision
+        ? {
+            id: res.decision.id,
+            role: res.decision.participant?.assignedRole || user?.role || 'COMMANDER',
+            authorName: res.decision.participant?.user?.fullName || user?.fullName || 'Commander',
+            decisionType: res.decision.decisionType,
+            action: res.decision.action,
+            rationale: res.decision.rationale,
+            simulationSecond: res.decision.simulationSecond,
+            perceivedStateSnapshot: JSON.parse(res.decision.perceivedStateSnapshotJson || '{}'),
+            scoreExplanation: JSON.parse(res.decision.scoreExplanationJson || '{}'),
+            createdAt: res.decision.createdAt,
+          }
+        : {
+            id: `dec-${Date.now()}`,
+            role: user?.role || 'COMMANDER',
+            authorName: user?.fullName || 'Commander',
+            decisionType: 'ROUTE_SELECTION',
+            action: actionText,
+            rationale: decisionRationale.trim(),
+            simulationSecond: simulationSecond,
+            perceivedStateSnapshot: { corridor: selectedRouteId },
+            scoreExplanation: {
+              alignedWithPerception: true,
+              feedback: CORRIDOR_OPTIONS[selectedRouteId]?.hint || 'Decision recorded under Fair Assessment Guarantee.',
+            },
+            createdAt: new Date().toISOString(),
+          };
+
+      setRecordedDecisions((prev) => [newDecisionItem, ...prev]);
 
       // Add decision event to simulationEvents state immediately
       const newEvent = {
@@ -421,12 +457,6 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
       setSimulationEvents((prev) => [newEvent, ...prev]);
 
       setDecisionSubmitted(true);
-      setTimeout(() => {
-        setDecisionModalOpen(false);
-        setDecisionSubmitted(false);
-        setDecisionRationale('');
-        setDecisionError(null);
-      }, 1500);
     } catch (err: any) {
       console.error('Decision submission error:', err);
       setDecisionError(err?.message || 'Failed to record decision. Please check connection and try again.');
@@ -492,7 +522,7 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
           <nav className="space-y-1 pt-1">
             <button
               onClick={() => setActiveNav('MAP')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                 activeNav === 'MAP'
                   ? 'bg-[#1e3a8a] text-white font-semibold shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
@@ -500,6 +530,27 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
             >
               <Compass className="w-4 h-4 text-sky-400" />
               <span>Situation Map</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('DECISIONS')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                activeNav === 'DECISIONS'
+                  ? 'bg-[#1e3a8a] text-white font-semibold shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <FileCheck className="w-4 h-4 text-emerald-400" />
+                <span>Tactical Decisions</span>
+              </div>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  activeNav === 'DECISIONS' ? 'bg-emerald-400 text-slate-900' : 'bg-slate-800 text-emerald-300'
+                }`}
+              >
+                {recordedDecisions.length}
+              </span>
             </button>
 
             <button
@@ -587,6 +638,7 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
             <div className="h-4 w-px bg-slate-200" />
             <span className="text-xs font-bold text-slate-900">
               {activeNav === 'MAP' && 'Situation Map'}
+              {activeNav === 'DECISIONS' && 'Tactical Decisions & Perception Audit Log'}
               {activeNav === 'OBJECTIVES' && 'Mission Objectives & Directives'}
               {activeNav === 'EVENTS' && 'Chronological Simulation Event Log'}
               {activeNav === 'STATUS' && 'Team Multi-Domain Operational Status'}
@@ -654,12 +706,144 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
               {/* Tactical Bottom Action Bar */}
               <div className="absolute bottom-3 right-3 z-[1000] flex items-center gap-2">
                 <button
-                  onClick={() => setDecisionModalOpen(true)}
-                  className="px-4 py-2 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs transition-colors shadow-lg flex items-center gap-1.5"
+                  onClick={() => setActiveNav('DECISIONS')}
+                  className="px-3.5 py-2 rounded-lg bg-white/95 hover:bg-white text-slate-800 font-bold text-xs transition-colors shadow-lg border border-slate-200 flex items-center gap-1.5 backdrop-blur-xs cursor-pointer"
+                >
+                  <FileCheck className="w-4 h-4 text-emerald-600" />
+                  <span>View Decisions ({recordedDecisions.length})</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setDecisionSubmitted(false);
+                    setDecisionModalOpen(true);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs transition-colors shadow-lg flex items-center gap-1.5 cursor-pointer"
                 >
                   <FileCheck className="w-4 h-4" />
                   <span>Make Tactical Decision</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* TACTICAL DECISIONS & AUDIT VIEW */}
+          {activeNav === 'DECISIONS' && (
+            <div className="p-6 max-w-4xl mx-auto space-y-6">
+              {/* Header card with action */}
+              <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="w-5 h-5 text-blue-600" />
+                      <h2 className="text-lg font-bold text-slate-900">Tactical Decisions & Perception Audit</h2>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Every decision evaluated strictly against the perceived situational snapshot at the exact moment of execution.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setDecisionSubmitted(false);
+                      setDecisionModalOpen(true);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 flex-shrink-0 cursor-pointer self-start sm:self-auto"
+                  >
+                    <FileCheck className="w-4 h-4" />
+                    <span>+ Record Tactical Decision</span>
+                  </button>
+                </div>
+
+                {/* Fair assessment guarantee banner */}
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
+                  <Shield className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-blue-950">Fair Assessment Guarantee Active:</strong> Ground truth hazards that were delayed or not yet reported to your post at the moment of decision are never counted as trainee errors.
+                  </div>
+                </div>
+              </div>
+
+              {/* Decisions List */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Recorded Mission Decisions ({recordedDecisions.length})
+                  </h3>
+                  <Link
+                    href={`/aar/${resolvedParams.sessionId}`}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  >
+                    <span>View in Full AAR Report →</span>
+                  </Link>
+                </div>
+
+                {recordedDecisions.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-white border border-slate-200 shadow-sm text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                      <FileCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">No Tactical Decisions Recorded Yet</h4>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
+                        When faced with contradictory intelligence or hazardous transit corridors, record your directive along with your written reasoning.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setDecisionSubmitted(false);
+                        setDecisionModalOpen(true);
+                      }}
+                      className="px-4 py-2 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs shadow-sm inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileCheck className="w-4 h-4" />
+                      <span>Record First Tactical Decision</span>
+                    </button>
+                  </div>
+                ) : (
+                  recordedDecisions.map((d: any, idx: number) => {
+                    const scoreExp = typeof d.scoreExplanation === 'string' ? JSON.parse(d.scoreExplanation) : (d.scoreExplanation || {});
+                    return (
+                      <div key={d.id || idx} className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3.5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-extrabold text-xs flex items-center justify-center">
+                              #{idx + 1}
+                            </span>
+                            <span className="text-sm font-bold text-slate-900">{d.action}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold border border-slate-200">
+                              T+{formatTimer(d.simulationSecond || 0)}
+                            </span>
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {d.authorName || d.role || 'Commander'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Submitted Rationale */}
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1">
+                          <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            Commander Submitted Rationale:
+                          </div>
+                          <div className="text-xs text-slate-800 font-medium italic leading-relaxed">
+                            "{d.rationale}"
+                          </div>
+                        </div>
+
+                        {/* Fair Assessment Verdict */}
+                        <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200/80 text-xs text-blue-950 space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-blue-900 text-[11px]">
+                            <Shield className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Fair Assessment Audit:</span>
+                          </div>
+                          <div className="text-[11px] text-blue-900 leading-relaxed">
+                            {scoreExp.feedback || 'Evaluated strictly against information available to the operator at this timestamp without penalizing for hidden ground truth.'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
@@ -1154,10 +1338,56 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
             </div>
 
             {decisionSubmitted ? (
-              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-center space-y-1">
-                <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-                <div className="text-xs font-bold">Decision Logged Successfully</div>
-                <div className="text-[11px] text-slate-500">Cryptographic state snapshot recorded.</div>
+              <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-200 text-center space-y-3.5">
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                <div>
+                  <div className="text-sm font-bold text-emerald-900">Decision Logged Successfully!</div>
+                  <div className="text-xs text-slate-600 mt-1">
+                    Recorded at simulation time T+{formatTimer(simulationSecond)}. Perceived situational snapshot captured.
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-white rounded-xl border border-emerald-200 text-left text-xs space-y-1.5 shadow-2xs">
+                  <div className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider">Action Directive:</div>
+                  <div className="font-bold text-slate-900 text-xs">{decisionAction}</div>
+                  <div className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider pt-1.5 border-t border-slate-100">
+                    Recorded Rationale:
+                  </div>
+                  <div className="italic text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-200 text-xs">
+                    "{decisionRationale}"
+                  </div>
+                  <div className="text-[11px] text-blue-900 pt-1 flex items-start gap-1.5 font-medium bg-blue-50/70 p-2 rounded-lg border border-blue-100">
+                    <Shield className="w-3.5 h-3.5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <span>Stored in Mission Audit Log and evaluated under Fair Assessment Guarantee in After-Action Review (AAR).</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => {
+                      setDecisionModalOpen(false);
+                      setDecisionSubmitted(false);
+                      setDecisionRationale('');
+                      setDecisionError(null);
+                      setActiveNav('DECISIONS');
+                    }}
+                    className="flex-1 px-4 py-2 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <FileCheck className="w-4 h-4" />
+                    <span>View in Tactical Decisions Tab →</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDecisionModalOpen(false);
+                      setDecisionSubmitted(false);
+                      setDecisionRationale('');
+                      setDecisionError(null);
+                    }}
+                    className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                  >
+                    Return to Map
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-3 text-xs">

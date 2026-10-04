@@ -708,41 +708,78 @@ export default function AarReportPage({ params }: { params: Promise<{ sessionId:
         {/* VIEW 4: DECISIONS AUDIT */}
         {activeTab === 'DECISIONS' && (
           <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-slate-900">Recorded Tactical Decisions & Rationale Audit</h2>
-              <p className="text-xs text-slate-500">Every decision evaluated strictly against the perceived situational snapshot</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Recorded Tactical Decisions & Rationale Audit</h2>
+                <p className="text-xs text-slate-500">Every decision evaluated strictly against the perceived situational snapshot at the exact moment of execution</p>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                {(report?.decisions?.length || 0)} Decisions Recorded
+              </span>
             </div>
 
             <div className="space-y-3">
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 text-sm">Decision #1: Hold Convoy at Base Orion</span>
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
-                    Score: 100% (Prudent)
-                  </span>
-                </div>
-                <div className="text-slate-600 leading-relaxed">
-                  <strong>Commander Rationale:</strong> <em>"Air imagery conflicts with recent weather warnings. Holding relief convoy until scout Alpha transmits verified physical confirmation."</em>
-                </div>
-                <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
-                  Perceived Truth: Air reported clear, but Alpha radio was in propagation delay. Prudence recognized.
-                </div>
-              </div>
+              {report?.decisions && report.decisions.length > 0 ? (
+                report.decisions.map((d: any, idx: number) => {
+                  const scoreExp = typeof d.scoreExplanation === 'string' ? JSON.parse(d.scoreExplanation) : (d.scoreExplanation || {});
+                  return (
+                    <div key={d.id || idx} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">Decision #{idx + 1}: {d.action}</span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                            T+{formatTimer(d.simulationSecond || 0)}
+                          </span>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                          Role: {d.role || 'Commander'}
+                        </span>
+                      </div>
+                      <div className="text-slate-700 leading-relaxed bg-white p-3 rounded-lg border border-slate-200">
+                        <strong className="text-slate-900">Submitted Rationale:</strong> <em>"{d.rationale}"</em>
+                      </div>
+                      <div className="text-[11px] text-blue-800 bg-blue-50/70 p-2.5 rounded-lg border border-blue-100 flex items-start gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Fair Assessment Evaluation:</strong> {scoreExp.feedback || 'Evaluated strictly against information available to the operator at this timestamp without penalizing for hidden ground truth.'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-sm">Decision #1: Hold Convoy at Base Orion</span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                        Score: 100% (Prudent)
+                      </span>
+                    </div>
+                    <div className="text-slate-600 leading-relaxed">
+                      <strong>Commander Rationale:</strong> <em>"Air imagery conflicts with recent weather warnings. Holding relief convoy until scout Alpha transmits verified physical confirmation."</em>
+                    </div>
+                    <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
+                      Perceived Truth: Air reported clear, but Alpha radio was in propagation delay. Prudence recognized.
+                    </div>
+                  </div>
 
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 text-sm">Decision #2: Reroute via South Valley Bypass</span>
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
-                    Score: 95% (Optimal)
-                  </span>
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-sm">Decision #2: Reroute via South Valley Bypass</span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                        Score: 95% (Optimal)
+                      </span>
+                    </div>
+                    <div className="text-slate-600 leading-relaxed">
+                      <strong>Commander Rationale:</strong> <em>"Alpha confirmed North Pass completely impassable due to rockslide. Dispatching Convoy 1 via secured South Bypass."</em>
+                    </div>
+                    <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
+                      Ground Truth Match: 100%. South corridor was completely dry and safe. Zero convoy attrition.
+                    </div>
+                  </div>
                 </div>
-                <div className="text-slate-600 leading-relaxed">
-                  <strong>Commander Rationale:</strong> <em>"Alpha confirmed North Pass completely impassable due to rockslide. Dispatching Convoy 1 via secured South Bypass."</em>
-                </div>
-                <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
-                  Ground Truth Match: 100%. South corridor was completely dry and safe. Zero convoy attrition.
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}
