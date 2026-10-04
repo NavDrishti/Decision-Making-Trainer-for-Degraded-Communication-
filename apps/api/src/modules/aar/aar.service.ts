@@ -17,12 +17,12 @@ export async function generateAarReport(sessionId: string) {
   if (!session) throw new Error('Session not found');
 
   const totalMessages = session.messages.length;
-  const deliveredMessages = session.messages.filter((m) => m.status === 'DELIVERED').length;
-  const delayedMessages = session.messages.filter((m) => m.delaySeconds > 0).length;
-  const droppedMessages = session.messages.filter((m) => m.status === 'DROPPED').length;
+  const deliveredMessages = session.messages.filter((m: any) => m.status === 'DELIVERED').length;
+  const delayedMessages = session.messages.filter((m: any) => m.delaySeconds > 0).length;
+  const droppedMessages = session.messages.filter((m: any) => m.status === 'DROPPED').length;
 
   const totalOrders = session.orders.length;
-  const acknowledgedOrders = session.orders.filter((o) => o.status === 'ACKNOWLEDGED').length;
+  const acknowledgedOrders = session.orders.filter((o: any) => o.status === 'ACKNOWLEDGED').length;
   const ackRate = totalOrders > 0 ? Math.round((acknowledgedOrders / totalOrders) * 100) : 100;
 
   // Calculate ComRes Index components
@@ -109,7 +109,7 @@ export async function generateAarReport(sessionId: string) {
     ],
   };
 
-  const individualScores = session.participants.map((p) => {
+  const individualScores = session.participants.map((p: any) => {
     let roleScore = overallScore;
     let roleFeedback = 'Maintained reliable coordination under degraded conditions.';
 

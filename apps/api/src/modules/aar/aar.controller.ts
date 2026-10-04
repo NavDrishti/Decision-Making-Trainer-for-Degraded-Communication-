@@ -39,11 +39,11 @@ aarRouter.get('/:id/aar', authenticateUser, requireSessionAccess(), async (req: 
 
     // Communication metrics
     const totalMsgs = session.messages.length;
-    const deliveredMsgs = session.messages.filter((m) => m.status === 'DELIVERED').length;
-    const delayedMsgs = session.messages.filter((m) => m.delaySeconds > 0).length;
-    const droppedMsgs = session.messages.filter((m) => m.status === 'DROPPED').length;
-    const primaryMsgs = session.messages.filter((m) => m.channel === 'PRIMARY').length;
-    const backupMsgs = session.messages.filter((m) => m.channel === 'BACKUP').length;
+    const deliveredMsgs = session.messages.filter((m: any) => m.status === 'DELIVERED').length;
+    const delayedMsgs = session.messages.filter((m: any) => m.delaySeconds > 0).length;
+    const droppedMsgs = session.messages.filter((m: any) => m.status === 'DROPPED').length;
+    const primaryMsgs = session.messages.filter((m: any) => m.channel === 'PRIMARY').length;
+    const backupMsgs = session.messages.filter((m: any) => m.channel === 'BACKUP').length;
 
     // Perceived vs Ground Truth analysis summary
     const perceptionGaps = [
@@ -100,12 +100,12 @@ aarRouter.get('/:id/aar', authenticateUser, requireSessionAccess(), async (req: 
           backupChannelUse: backupMsgs,
           acknowledgementRate:
             session.orders.length > 0
-              ? Math.round((session.orders.filter((o) => o.status === 'ACKNOWLEDGED').length / session.orders.length) * 100)
+              ? Math.round((session.orders.filter((o: any) => o.status === 'ACKNOWLEDGED').length / session.orders.length) * 100)
               : 100,
           detectionLatencySeconds: 28,
           recoveryTimeSeconds: 61,
         },
-        decisions: session.decisions.map((d) => ({
+        decisions: session.decisions.map((d: any) => ({
           id: d.id,
           role: d.participant.assignedRole,
           authorName: d.participant.user.fullName,
@@ -115,7 +115,7 @@ aarRouter.get('/:id/aar', authenticateUser, requireSessionAccess(), async (req: 
           perceivedSnapshot: JSON.parse(d.perceivedStateSnapshotJson || '{}'),
           scoreExplanation: JSON.parse(d.scoreExplanationJson || '{}'),
         })),
-        instructorNotes: session.instructorNotes.map((n) => ({
+        instructorNotes: session.instructorNotes.map((n: any) => ({
           id: n.id,
           authorName: n.author.fullName,
           content: n.content,
@@ -198,9 +198,9 @@ aarRouter.get('/:id/aar/replay', authenticateUser, requireSessionAccess(), async
       };
 
       // Events up to this point
-      const activeEvents = session.simulationEvents.filter((e) => e.simulationSecond <= sec);
-      const activeMessages = session.messages.filter((m) => m.simulationSecond <= sec);
-      const activeDecisions = session.decisions.filter((d) => d.simulationSecond <= sec);
+      const activeEvents = session.simulationEvents.filter((e: any) => e.simulationSecond <= sec);
+      const activeMessages = session.messages.filter((m: any) => m.simulationSecond <= sec);
+      const activeDecisions = session.decisions.filter((d: any) => d.simulationSecond <= sec);
 
       return {
         simulationSecond: sec,

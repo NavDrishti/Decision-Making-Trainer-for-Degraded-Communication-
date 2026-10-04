@@ -150,7 +150,7 @@ sessionsRouter.get('/:id', authenticateUser, async (req: Request, res: Response)
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
     // Check user participation
-    const currentParticipant = session.participants.find((p) => p.userId === req.user!.id);
+    const currentParticipant = session.participants.find((p: any) => p.userId === req.user!.id);
 
     return res.json({
       success: true,

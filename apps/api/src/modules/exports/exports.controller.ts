@@ -36,14 +36,14 @@ exportsRouter.post('/:id/export/json', authenticateUser, exportRateLimiter, requ
         durationSeconds: session.scenario.durationSeconds,
       },
       comResIndex: session.aarReport ? JSON.parse(session.aarReport.teamResilienceIndexJson) : null,
-      decisions: session.decisions.map((d) => ({
+      decisions: session.decisions.map((d: any) => ({
         decisionType: d.decisionType,
         action: d.action,
         rationale: d.rationale,
         second: d.simulationSecond,
         perceivedState: JSON.parse(d.perceivedStateSnapshotJson || '{}'),
       })),
-      messages: session.messages.map((m) => ({
+      messages: session.messages.map((m: any) => ({
         channel: m.channel,
         status: m.status,
         delaySeconds: m.delaySeconds,
@@ -196,7 +196,7 @@ exportsRouter.post('/:id/export/pdf', authenticateUser, exportRateLimiter, requi
     <tbody>
       ${session.participants
         .map(
-          (p) => `
+          (p: any) => `
         <tr>
           <td><span class="badge">${p.assignedRole}</span></td>
           <td>${p.user.fullName}</td>
@@ -221,7 +221,7 @@ exportsRouter.post('/:id/export/pdf', authenticateUser, exportRateLimiter, requi
     <tbody>
       ${session.decisions
         .map(
-          (d) => `
+          (d: any) => `
         <tr>
           <td>${d.simulationSecond}s</td>
           <td>${d.decisionType}</td>

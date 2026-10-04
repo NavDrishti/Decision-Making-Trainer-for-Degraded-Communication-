@@ -164,7 +164,7 @@ simulationRouter.get('/:id/messages', authenticateUser, requireSessionAccess(), 
       },
     });
 
-    const formatted = messages.map((m) => ({
+    const formatted = messages.map((m: any) => ({
       id: m.id,
       senderRole: m.sender.assignedRole,
       senderName: m.sender.user.fullName,
@@ -355,7 +355,7 @@ simulationRouter.get('/:id/decisions', authenticateUser, requireSessionAccess(),
 
     return res.json({
       success: true,
-      decisions: decisions.map((d) => ({
+      decisions: decisions.map((d: any) => ({
         id: d.id,
         role: d.participant.assignedRole,
         authorName: d.participant.user.fullName,
@@ -390,7 +390,7 @@ simulationRouter.get('/:id/timeline', authenticateUser, requireSessionAccess(), 
 
     return res.json({
       success: true,
-      timeline: events.map((e) => ({
+      timeline: events.map((e: any) => ({
         id: e.id,
         type: e.type,
         source: e.source,
