@@ -7,13 +7,39 @@ import { recordAuditLog } from '../../common/utils/audit.js';
 
 export const simulationRouter = Router({ mergeParams: true });
 
+async function resolveSession(idOrCode: string) {
+  const isJoinCode = idOrCode.startsWith('ND-');
+  return prisma.trainingSession.findFirst({
+    where: isJoinCode ? { joinCode: idOrCode } : { id: idOrCode },
+  });
+}
+
+async function resolveParticipant(sessionId: string, userId: string, userRole?: string) {
+  let participant = await prisma.sessionParticipant.findFirst({
+    where: { sessionId, userId },
+    include: { user: true },
+  });
+  if (!participant) {
+    participant = await prisma.sessionParticipant.create({
+      data: {
+        sessionId,
+        userId,
+        assignedRole: userRole === 'INSTRUCTOR' || userRole === 'SUPER_ADMIN' ? 'COMMANDER' : (userRole || 'COMMANDER'),
+        status: 'READY',
+      },
+      include: { user: true },
+    });
+  }
+  return participant;
+}
+
 // 1. INJECT DISRUPTION (Instructor / Super Admin)
 simulationRouter.post('/:id/events/inject', authenticateUser, requireRole(['INSTRUCTOR', 'SUPER_ADMIN']), async (req: Request, res: Response) => {
   try {
     const { actionType, params } = req.body;
     if (!actionType) return res.status(400).json({ success: false, error: 'actionType is required.' });
 
-    const session = await prisma.trainingSession.findUnique({ where: { id: req.params.id } });
+    const session = await resolveSession(req.params.id);
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
     let engine = ScenarioEngine.getEngine(session.id);
@@ -40,14 +66,10 @@ simulationRouter.post('/:id/messages', authenticateUser, requireSessionAccess(),
       return res.status(400).json({ success: false, error: 'Message body cannot be empty.' });
     }
 
-    const session = await prisma.trainingSession.findUnique({ where: { id: req.params.id } });
+    const session = await resolveSession(req.params.id);
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
-    const participant = await prisma.sessionParticipant.findFirst({
-      where: { sessionId: session.id, userId: req.user!.id },
-    });
-
-    if (!participant) return res.status(403).json({ success: false, error: 'User is not a participant in this session.' });
+    const participant = await resolveParticipant(session.id, req.user!.id, req.user!.role);
 
     let engine = ScenarioEngine.getEngine(session.id);
     if (!engine) {
@@ -137,11 +159,14 @@ simulationRouter.post('/:id/messages', authenticateUser, requireSessionAccess(),
 simulationRouter.get('/:id/messages', authenticateUser, requireSessionAccess(), async (req: Request, res: Response) => {
   try {
     const isInstructor = req.user!.role === 'INSTRUCTOR' || req.user!.role === 'SUPER_ADMIN';
+    const session = await resolveSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
     const participant = await prisma.sessionParticipant.findFirst({
-      where: { sessionId: req.params.id, userId: req.user!.id },
+      where: { sessionId: session.id, userId: req.user!.id },
     });
 
-    const where: any = { sessionId: req.params.id };
+    const where: any = { sessionId: session.id };
 
     if (!isInstructor && participant) {
       // Trainees CANNOT see dropped messages or messages still in transit (DELAYED) that haven't reached scheduled delivery!
@@ -192,18 +217,17 @@ simulationRouter.post('/:id/orders', authenticateUser, requireSessionAccess(), a
     const { recipientRole, content, relatedRouteId } = req.body;
     if (!content) return res.status(400).json({ success: false, error: 'Order content is required.' });
 
-    const participant = await prisma.sessionParticipant.findFirst({
-      where: { sessionId: req.params.id, userId: req.user!.id },
-    });
+    const session = await resolveSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
-    if (!participant) return res.status(403).json({ success: false, error: 'Not a session participant.' });
+    const participant = await resolveParticipant(session.id, req.user!.id, req.user!.role);
 
-    let engine = ScenarioEngine.getEngine(req.params.id);
+    let engine = ScenarioEngine.getEngine(session.id);
     const second = engine ? engine.groundTruth.simulationSecond : 0;
 
     const order = await prisma.order.create({
       data: {
-        sessionId: req.params.id,
+        sessionId: session.id,
         issuerParticipantId: participant.id,
         recipientRole: recipientRole || 'LOGISTICS',
         content,
@@ -229,10 +253,13 @@ simulationRouter.post('/:id/orders', authenticateUser, requireSessionAccess(), a
 // 5. ACKNOWLEDGE ORDER
 simulationRouter.post('/:id/orders/:orderId/acknowledge', authenticateUser, requireSessionAccess(), async (req: Request, res: Response) => {
   try {
+    const session = await resolveSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
     const order = await prisma.order.findUnique({ where: { id: req.params.orderId } });
     if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
 
-    let engine = ScenarioEngine.getEngine(req.params.id);
+    let engine = ScenarioEngine.getEngine(session.id);
     const second = engine ? engine.groundTruth.simulationSecond : 0;
 
     const updated = await prisma.order.update({
@@ -262,19 +289,15 @@ simulationRouter.post('/:id/decisions', authenticateUser, requireSessionAccess()
       return res.status(400).json({ success: false, error: 'Decision action and rationale are both required.' });
     }
 
-    const participant = await prisma.sessionParticipant.findFirst({
-      where: { sessionId: req.params.id, userId: req.user!.id },
-    });
+    const session = await resolveSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
-    if (!participant) return res.status(403).json({ success: false, error: 'Not a participant.' });
+    const participant = await resolveParticipant(session.id, req.user!.id, req.user!.role);
 
-    let engine = ScenarioEngine.getEngine(req.params.id);
+    let engine = ScenarioEngine.getEngine(session.id);
     if (!engine) {
-      const session = await prisma.trainingSession.findUnique({ where: { id: req.params.id } });
-      if (session) {
-        engine = new ScenarioEngine(session.id, JSON.parse(session.configurationSnapshotJson), JSON.parse(session.groundTruthStateJson));
-        ScenarioEngine.registerEngine(session.id, engine);
-      }
+      engine = new ScenarioEngine(session.id, JSON.parse(session.configurationSnapshotJson), JSON.parse(session.groundTruthStateJson));
+      ScenarioEngine.registerEngine(session.id, engine);
     }
 
     const second = engine ? engine.groundTruth.simulationSecond : 0;
@@ -296,11 +319,13 @@ simulationRouter.post('/:id/decisions', authenticateUser, requireSessionAccess()
       fairEvaluation.feedback = 'Selected North Route while reports were conflicting. Prudent verification was warranted.';
     } else if (selectedRouteId === 'route-south') {
       fairEvaluation.feedback = 'Excellent choice: South Valley Bypass navigated around reported debris and severe weather.';
+    } else if (selectedRouteId === 'route-central') {
+      fairEvaluation.feedback = 'Selected Central Corridor: navigated through flash rain slowdown with caution.';
     }
 
     const decision = await prisma.decision.create({
       data: {
-        sessionId: req.params.id,
+        sessionId: session.id,
         participantId: participant.id,
         decisionType: decisionType || 'ROUTE_SELECTION',
         action,
@@ -331,20 +356,23 @@ simulationRouter.post('/:id/decisions', authenticateUser, requireSessionAccess()
       );
     }
 
-    await recordAuditLog(req.user!.id, 'DECISION_SUBMITTED', { sessionId: req.params.id, action, decisionId: decision.id }, req.ip, req.headers['user-agent']);
+    await recordAuditLog(req.user!.id, 'DECISION_SUBMITTED', { sessionId: session.id, action, decisionId: decision.id }, req.ip, req.headers['user-agent']);
 
     return res.status(201).json({ success: true, decision });
   } catch (err: any) {
     console.error('Decision error:', err);
-    return res.status(500).json({ success: false, error: 'Failed to record decision.' });
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to record decision.' });
   }
 });
 
 // 7. GET DECISIONS
 simulationRouter.get('/:id/decisions', authenticateUser, requireSessionAccess(), async (req: Request, res: Response) => {
   try {
+    const session = await resolveSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
     const decisions = await prisma.decision.findMany({
-      where: { sessionId: req.params.id },
+      where: { sessionId: session.id },
       orderBy: { simulationSecond: 'asc' },
       include: {
         participant: {
@@ -376,9 +404,12 @@ simulationRouter.get('/:id/decisions', authenticateUser, requireSessionAccess(),
 // 8. GET SIMULATION TIMELINE
 simulationRouter.get('/:id/timeline', authenticateUser, requireSessionAccess(), async (req: Request, res: Response) => {
   try {
+    const session = await resolveSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
     const isInstructor = req.user!.role === 'INSTRUCTOR' || req.user!.role === 'SUPER_ADMIN';
 
-    const where: any = { sessionId: req.params.id };
+    const where: any = { sessionId: session.id };
     if (!isInstructor) {
       where.visibilityScope = 'ALL';
     }

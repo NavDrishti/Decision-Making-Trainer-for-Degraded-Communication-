@@ -56,16 +56,46 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
     }
   }, [user, isLoading, router]);
 
-  // Messages list matching photo
+  // Corridor selection definitions with distinct actions and operational hints
+  const CORRIDOR_OPTIONS: Record<string, { label: string; action: string; hint: string }> = {
+    'route-central': {
+      label: 'Central Corridor (Weather Slowdown)',
+      action: 'Transit Central Corridor with Weather Caution',
+      hint: 'Direct path through highway. Surface rain causes 35% speed reduction, but corridor remains open.',
+    },
+    'route-north': {
+      label: 'North Ridge Pass (Reported Blocked)',
+      action: 'Hold & Recon North Ridge Pass',
+      hint: 'Rockfall reported by Scout Alpha. Ground reports conflict with older aerial surveillance pass.',
+    },
+    'route-south': {
+      label: 'South Valley Bypass (Clear Pass)',
+      action: 'Divert Convoy via South Valley Bypass',
+      hint: 'Confirmed clear by Patrol Bravo. Adds 4.2 km distance but completely avoids hazards.',
+    },
+  };
+
+  // Messages list with distinct Team and System entries matching realistic mission feeds
   const [messages, setMessages] = useState<any[]>([
     {
       id: 'm1',
-      sender: 'HQ',
+      sender: 'HQ Command',
       senderRole: 'COMMANDER',
       avatarBg: 'bg-blue-600',
       text: 'Move to checkpoint B. Confirm ETA.',
       time: '14:45',
       isDelayed: false,
+      isSystem: false,
+    },
+    {
+      id: 's1',
+      sender: 'RF Grid Node 04',
+      senderRole: 'SYSTEM',
+      avatarBg: 'bg-amber-600',
+      text: 'Propagation delay active (+45s lag on Primary VHF channel) due to atmospheric disturbance.',
+      time: '14:44',
+      isDelayed: false,
+      isSystem: true,
     },
     {
       id: 'm2',
@@ -75,6 +105,17 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
       text: 'We are facing heavy delays on sector 3.',
       time: '14:43',
       isDelayed: false,
+      isSystem: false,
+    },
+    {
+      id: 's2',
+      sender: 'Weather Telemetry',
+      senderRole: 'SYSTEM',
+      avatarBg: 'bg-sky-600',
+      text: 'Meteorological Alert: Flash rain on Central Corridor Highway. Transit speed reduced 35%.',
+      time: '14:42',
+      isDelayed: false,
+      isSystem: true,
     },
     {
       id: 'm3',
@@ -84,25 +125,38 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
       text: 'Visual unclear, possible movement.',
       time: '14:41',
       isDelayed: false,
+      isSystem: false,
+    },
+    {
+      id: 's3',
+      sender: 'Relay Subsystem',
+      senderRole: 'SYSTEM',
+      avatarBg: 'bg-purple-600',
+      text: 'Link Health: 1 packet dropped on South Valley link. Packet rerouting via backup UHF node.',
+      time: '14:39',
+      isDelayed: false,
+      isSystem: true,
     },
     {
       id: 'm4',
       sender: 'Logistics',
       senderRole: 'LOGISTICS',
       avatarBg: 'bg-amber-600',
-      text: 'Fuel status at 60%.',
+      text: 'Fuel status at 60%. Ready for transit clearance.',
       time: '14:38',
       isDelayed: false,
+      isSystem: false,
     },
     {
       id: 'm5',
       sender: 'Team Alpha',
       senderRole: 'TEAM_ALPHA',
       avatarBg: 'bg-red-600',
-      text: 'Reached waypoint A.',
+      text: 'Reached waypoint A. Rockfall debris observed.',
       deliveryNote: '(Delivered after 10 min)',
       time: '14:30',
       isDelayed: true,
+      isSystem: false,
     },
   ]);
 
@@ -110,11 +164,26 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
 
   // Decision Modal State
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
-  const [decisionAction, setDecisionAction] = useState('Central Route Transit');
-  const [decisionRationale, setDecisionRationale] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('route-central');
+  const [decisionAction, setDecisionAction] = useState('Transit Central Corridor with Weather Caution');
+  const [decisionRationale, setDecisionRationale] = useState('');
+  const [decisionError, setDecisionError] = useState<string | null>(null);
   const [decisionSubmitted, setDecisionSubmitted] = useState(false);
   const [submittingDecision, setSubmittingDecision] = useState(false);
+
+  const handleCorridorChange = (corridorId: string) => {
+    setSelectedRouteId(corridorId);
+    if (CORRIDOR_OPTIONS[corridorId]) {
+      setDecisionAction(CORRIDOR_OPTIONS[corridorId].action);
+    }
+    setDecisionError(null);
+  };
+
+  // Filtered message lists for Team, All, and System tabs
+  const teamMessages = messages.filter((m) => !m.isSystem && m.senderRole !== 'SYSTEM');
+  const systemMessages = messages.filter((m) => m.isSystem || m.senderRole === 'SYSTEM');
+  const visibleMessages =
+    activeTab === 'TEAM' ? teamMessages : activeTab === 'SYSTEM' ? systemMessages : messages;
 
   // Real-time Live Online Weather & RF Propagation Telemetry (Open-Meteo Public API)
   const [liveWeather, setLiveWeather] = useState<{
@@ -276,10 +345,11 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
           id: newMsg.id || String(Date.now()),
           sender: newMsg.senderRole || 'Operator',
           senderRole: newMsg.senderRole,
-          avatarBg: 'bg-blue-600',
+          avatarBg: newMsg.senderRole === 'SYSTEM' ? 'bg-amber-600' : 'bg-blue-600',
           text: newMsg.body,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isDelayed: (newMsg.delaySeconds || 0) > 0,
+          isSystem: newMsg.senderRole === 'SYSTEM',
         },
       ]);
     });
@@ -296,12 +366,13 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
 
     const newMsg = {
       id: String(Date.now()),
-      sender: user?.fullName || 'Team Alpha',
-      senderRole: user?.role || 'TEAM_OPERATOR',
+      sender: user?.fullName || 'Commander',
+      senderRole: user?.role || 'COMMANDER',
       avatarBg: 'bg-sky-600',
       text: messageInput.trim(),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isDelayed: false,
+      isSystem: false,
     };
 
     setMessages((prev) => [...prev, newMsg]);
@@ -318,24 +389,47 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
   };
 
   const handleSubmitDecision = async () => {
-    if (!decisionRationale.trim()) return;
+    if (!decisionRationale.trim()) {
+      setDecisionError('Please provide a decision rationale explaining your tactical reasoning.');
+      return;
+    }
     setSubmittingDecision(true);
+    setDecisionError(null);
+
+    const actionText = decisionAction.trim() || CORRIDOR_OPTIONS[selectedRouteId]?.action || 'Tactical Route Order';
 
     try {
       await api.post(`/sessions/${resolvedParams.sessionId}/decisions`, {
         decisionType: 'ROUTE_SELECTION',
-        action: `${decisionAction} (${selectedRouteId})`,
-        rationale: decisionRationale,
-        relatedRouteId: selectedRouteId,
+        action: actionText,
+        rationale: decisionRationale.trim(),
+        selectedRouteId: selectedRouteId,
       });
+
+      // Add decision event to simulationEvents state immediately
+      const newEvent = {
+        id: `dec-${Date.now()}`,
+        timeSec: simulationSecond,
+        timeFormatted: formatTimer(simulationSecond),
+        type: 'DECISION_EXECUTED',
+        badge: 'TACTICAL DECISION',
+        badgeColor: 'bg-emerald-100 text-emerald-700',
+        title: actionText,
+        role: user?.fullName || 'Commander',
+        detail: `Commander logged tactical decision: "${decisionRationale.trim()}". Fair assessment snapshot saved.`,
+      };
+      setSimulationEvents((prev) => [newEvent, ...prev]);
+
       setDecisionSubmitted(true);
       setTimeout(() => {
         setDecisionModalOpen(false);
         setDecisionSubmitted(false);
         setDecisionRationale('');
+        setDecisionError(null);
       }, 1500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Decision submission error:', err);
+      setDecisionError(err?.message || 'Failed to record decision. Please check connection and try again.');
     } finally {
       setSubmittingDecision(false);
     }
@@ -554,7 +648,7 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
                 onViewChange={(v) => setCurrentView(v === 'GROUND_TRUTH' ? 'GROUND_TRUTH' : 'YOUR_VIEW')}
                 simulationSecond={simulationSecond}
                 activeRouteHighlight={selectedRouteId}
-                onSelectRoute={(id) => setSelectedRouteId(id)}
+                onSelectRoute={(id) => handleCorridorChange(id)}
               />
 
               {/* Tactical Bottom Action Bar */}
@@ -822,31 +916,90 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Tactical Communications Log</h2>
-                  <p className="text-xs text-slate-500">Live multi-channel message stream with delivery status and latency tags</p>
+                  <p className="text-xs text-slate-500">Live multi-channel message stream with delivery status, latency tags, and system telemetry</p>
                 </div>
                 <div className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-slate-700">
                   Primary RF Channel: NORMAL
                 </div>
               </div>
 
+              {/* View filter tabs */}
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold">
+                <button
+                  onClick={() => setActiveTab('TEAM')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'TEAM'
+                      ? 'bg-blue-600 text-white font-bold shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>Team Comms</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'TEAM' ? 'bg-blue-800 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                    {teamMessages.length}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('ALL')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'ALL'
+                      ? 'bg-blue-600 text-white font-bold shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>All Feeds</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'ALL' ? 'bg-blue-800 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                    {messages.length}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('SYSTEM')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'SYSTEM'
+                      ? 'bg-blue-600 text-white font-bold shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>System Broadcasts</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'SYSTEM' ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                    {systemMessages.length}
+                  </span>
+                </button>
+              </div>
+
               <div className="space-y-3">
-                {messages.map((m) => (
-                  <div key={m.id} className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex items-start gap-3">
-                    <div className={`w-8 h-8 rounded-full ${m.avatarBg} text-white flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5`}>
-                      {m.sender.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900 text-xs">
-                          {m.isDelayed ? <span className="text-red-600 font-bold">(Delayed) {m.sender}</span> : m.sender}
-                        </span>
-                        <span className="text-[11px] font-mono text-slate-400">{m.time}</span>
-                      </div>
-                      <p className="text-xs text-slate-700 mt-1">{m.text}</p>
-                      {m.deliveryNote && <div className="text-[11px] text-red-600 font-medium mt-0.5">{m.deliveryNote}</div>}
-                    </div>
+                {visibleMessages.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center gap-2 bg-white rounded-xl border border-slate-200">
+                    <MessageSquare className="w-8 h-8 text-slate-300" />
+                    <span>No {activeTab.toLowerCase()} messages logged at this time.</span>
                   </div>
-                ))}
+                ) : (
+                  visibleMessages.map((m) => (
+                    <div key={m.id} className={`p-4 rounded-xl bg-white border ${m.isSystem ? 'border-amber-200 bg-amber-50/20' : 'border-slate-200'} shadow-sm flex items-start gap-3`}>
+                      <div className={`w-8 h-8 rounded-full ${m.avatarBg} text-white flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5`}>
+                        {m.isSystem ? (
+                          <Radio className="w-4 h-4" />
+                        ) : (
+                          m.sender.split(' ').map((n: string) => n[0]).join('').substring(0, 2)
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                            {m.isDelayed ? <span className="text-red-600 font-bold">(Delayed) {m.sender}</span> : m.sender}
+                            {m.isSystem && (
+                              <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 uppercase">
+                                Automated Node
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-400">{m.time}</span>
+                        </div>
+                        <p className="text-xs text-slate-700 mt-1">{m.text}</p>
+                        {m.deliveryNote && <div className="text-[11px] text-red-600 font-medium mt-0.5">{m.deliveryNote}</div>}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -857,76 +1010,106 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
       <aside className="w-80 bg-white border-l border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         {/* Header with chevron */}
         <div className="p-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
-          <span className="text-xs font-bold text-slate-900">Communications</span>
+          <div className="flex items-center gap-1.5">
+            <Radio className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-xs font-bold text-slate-900">Communications</span>
+          </div>
           <ChevronDown className="w-4 h-4 text-slate-500 cursor-pointer" />
         </div>
 
-        {/* Filter Tabs: [ Team | All | System ] */}
-        <div className="px-3 pt-2.5 pb-2 flex items-center gap-2 border-b border-slate-200 text-[11px] font-semibold bg-white">
+        {/* Filter Tabs: [ Team | All | System ] with badges */}
+        <div className="px-3 pt-2.5 pb-2 flex items-center gap-1.5 border-b border-slate-200 text-[11px] font-semibold bg-white">
           <button
             onClick={() => setActiveTab('TEAM')}
-            className={`px-3 py-1 rounded-md transition-colors ${
+            className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer ${
               activeTab === 'TEAM'
                 ? 'bg-blue-50 text-blue-600 font-bold border border-blue-200'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            Team
+            <span>Team</span>
+            <span className={`text-[10px] px-1 py-0.2 rounded-full ${activeTab === 'TEAM' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+              {teamMessages.length}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('ALL')}
-            className={`px-3 py-1 rounded-md transition-colors ${
+            className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer ${
               activeTab === 'ALL'
                 ? 'bg-blue-50 text-blue-600 font-bold border border-blue-200'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            All
+            <span>All</span>
+            <span className={`text-[10px] px-1 py-0.2 rounded-full ${activeTab === 'ALL' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+              {messages.length}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('SYSTEM')}
-            className={`px-3 py-1 rounded-md transition-colors ${
+            className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer ${
               activeTab === 'SYSTEM'
                 ? 'bg-blue-50 text-blue-600 font-bold border border-blue-200'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            System
+            <span>System</span>
+            <span className={`text-[10px] px-1 py-0.2 rounded-full ${activeTab === 'SYSTEM' ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+              {systemMessages.length}
+            </span>
           </button>
         </div>
 
         {/* Message Feed */}
         <div className="flex-1 p-3 space-y-3 overflow-y-auto bg-slate-50/30">
-          {messages.map((m) => (
-            <div key={m.id} className="flex items-start gap-2.5 text-xs bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs">
-              {/* Circle Avatar */}
-              <div
-                className={`w-7 h-7 rounded-full ${m.avatarBg} text-white flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5 shadow-sm`}
-              >
-                {m.sender.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
-              </div>
-
-              {/* Message Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 text-[11px] truncate">
-                    {m.isDelayed ? (
-                      <span className="text-red-600 flex items-center gap-1 font-bold">
-                        <span>(Delayed)</span> {m.sender}
-                      </span>
-                    ) : (
-                      m.sender
-                    )}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">{m.time}</span>
-                </div>
-                <div className="text-slate-700 text-xs mt-0.5 leading-relaxed">{m.text}</div>
-                {m.deliveryNote && (
-                  <div className="text-[10px] text-red-600 font-medium mt-0.5">{m.deliveryNote}</div>
-                )}
-              </div>
+          {visibleMessages.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+              <MessageSquare className="w-6 h-6 text-slate-300" />
+              <span>No {activeTab.toLowerCase()} messages in this feed.</span>
             </div>
-          ))}
+          ) : (
+            visibleMessages.map((m) => (
+              <div key={m.id} className={`flex items-start gap-2.5 text-xs bg-white p-2.5 rounded-xl border ${m.isSystem ? 'border-amber-200 bg-amber-50/20' : 'border-slate-200/80'} shadow-2xs`}>
+                {/* Circle Avatar */}
+                <div
+                  className={`w-7 h-7 rounded-full ${m.avatarBg} text-white flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5 shadow-sm`}
+                >
+                  {m.isSystem ? (
+                    <Radio className="w-3.5 h-3.5" />
+                  ) : (
+                    m.sender.split(' ').map((n: string) => n[0]).join('').substring(0, 2)
+                  )}
+                </div>
+
+                {/* Message Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-bold text-slate-900 text-[11px] truncate flex items-center gap-1">
+                      {m.isDelayed ? (
+                        <span className="text-red-600 flex items-center gap-1 font-bold">
+                          <span>(Delayed)</span> {m.sender}
+                        </span>
+                      ) : (
+                        m.sender
+                      )}
+                    </span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {m.isSystem && (
+                        <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-amber-100 text-amber-800 uppercase">
+                          System
+                        </span>
+                      )}
+                      <span className="text-[10px] text-slate-400 font-mono">{m.time}</span>
+                    </div>
+                  </div>
+                  <div className="text-slate-700 text-xs mt-0.5 leading-relaxed">{m.text}</div>
+                  {m.deliveryNote && (
+                    <div className="text-[10px] text-red-600 font-medium mt-0.5">{m.deliveryNote}</div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Message Input matching photo */}
@@ -941,7 +1124,7 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
             />
             <button
               type="submit"
-              className="w-8 h-8 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white flex items-center justify-center transition-colors flex-shrink-0 shadow-sm"
+              className="w-8 h-8 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white flex items-center justify-center transition-colors flex-shrink-0 shadow-sm cursor-pointer"
               title="Send"
             >
               <Send className="w-3.5 h-3.5" />
@@ -960,8 +1143,11 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
                 <span>Submit Tactical Decision</span>
               </h3>
               <button
-                onClick={() => setDecisionModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-xs"
+                onClick={() => {
+                  setDecisionModalOpen(false);
+                  setDecisionError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer p-1"
               >
                 ✕
               </button>
@@ -975,26 +1161,54 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
               </div>
             ) : (
               <div className="space-y-3 text-xs">
+                {decisionError && (
+                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-700 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-600 mt-0.5" />
+                    <span>{decisionError}</span>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">Select Transit Corridor</label>
                   <select
                     value={selectedRouteId}
-                    onChange={(e) => setSelectedRouteId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 text-xs"
+                    onChange={(e) => handleCorridorChange(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 text-xs focus:border-blue-500 outline-none"
                   >
                     <option value="route-north">North Ridge Pass (Reported Blocked)</option>
                     <option value="route-central">Central Corridor (Weather Slowdown)</option>
                     <option value="route-south">South Valley Bypass (Clear Pass)</option>
                   </select>
+                  {CORRIDOR_OPTIONS[selectedRouteId]?.hint && (
+                    <div className="mt-1.5 p-2 rounded-md bg-slate-50 border border-slate-200 text-[11px] text-slate-600 leading-snug">
+                      <span className="font-semibold text-slate-800">Corridor Intel:</span> {CORRIDOR_OPTIONS[selectedRouteId].hint}
+                    </div>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Decision Rationale</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Tactical Directive / Action</label>
+                  <input
+                    type="text"
+                    value={decisionAction}
+                    onChange={(e) => setDecisionAction(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 text-xs focus:border-blue-500 outline-none"
+                    placeholder="e.g. Transit Central Corridor with Weather Caution"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">
+                    Decision Rationale <span className="text-red-500">*</span>
+                  </label>
                   <textarea
                     rows={3}
                     required
                     value={decisionRationale}
-                    onChange={(e) => setDecisionRationale(e.target.value)}
+                    onChange={(e) => {
+                      setDecisionRationale(e.target.value);
+                      if (decisionError) setDecisionError(null);
+                    }}
                     placeholder="Explain why this decision is made based on the intel you currently have..."
                     className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 text-xs focus:border-blue-500 outline-none"
                   />
@@ -1006,17 +1220,21 @@ export default function SimulatorPage({ params }: { params: Promise<{ sessionId:
 
                 <div className="pt-2 flex justify-end gap-2">
                   <button
-                    onClick={() => setDecisionModalOpen(false)}
-                    className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs"
+                    onClick={() => {
+                      setDecisionModalOpen(false);
+                      setDecisionError(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-medium cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleSubmitDecision}
-                    disabled={submittingDecision || !decisionRationale.trim()}
-                    className="px-4 py-1.5 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs disabled:opacity-50"
+                    disabled={submittingDecision}
+                    className="px-4 py-1.5 rounded-lg bg-[#0066ff] hover:bg-blue-600 text-white font-bold text-xs disabled:opacity-50 cursor-pointer shadow-sm flex items-center gap-1.5"
                   >
-                    {submittingDecision ? 'Submitting...' : 'Record Decision'}
+                    {submittingDecision && <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    <span>{submittingDecision ? 'Recording Decision...' : 'Record Decision'}</span>
                   </button>
                 </div>
               </div>
